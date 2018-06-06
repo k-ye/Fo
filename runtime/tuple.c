@@ -30,14 +30,14 @@ const obj_operators_t* get_tuple_operators() {
 
 gc_header_t* alloc_tuple(size_t num) {
   size_t size_bytes = tuple_bytes_by_num(num);
-  gc_header_t* gc_t = gc_alloc_nontrivial(size_bytes, get_tuple_operators());
-  if (gc_t != NULL) {
-    tuple_t* t = (tuple_t*)gc_t->obj;
+  gc_header_t* gt = gc_alloc_nontrivial(size_bytes, get_tuple_operators());
+  if (gt != NULL) {
+    tuple_t* t = GC_TO_OBJ(tuple_t, gt);
     t->num = num;
     t->gc_mask = 0;
     t->begin = (val_t*)(((char*)t) + tuple_bytes_by_num(0));
   }
-  return gc_t;
+  return gt;
 }
 
 void set_tuple_at(gc_header_t* gt, int i, val_t val, bool needs_gc) {
@@ -59,9 +59,4 @@ val_t get_tuple_at(gc_header_t* gt, int i) {
   tuple_t* t = GC_TO_OBJ(tuple_t, gt);
   CHECK((0 <= i) && (i < t->num));
   return t->begin[i];
-}
-
-val_t* get_tuple_addr_at(tuple_t* t, int i) {
-  CHECK((0 <= i) && (i < t->num));
-  return &(t->begin[i]);
 }
