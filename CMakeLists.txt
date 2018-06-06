@@ -25,3 +25,6 @@ target_link_libraries(gc_test LINK_PUBLIC fo_lib)
 
 add_executable(closure_test test/closure_test.c)
 target_link_libraries(closure_test LINK_PUBLIC fo_lib)
+
+add_executable(first test/first.c)
+target_link_libraries(first LINK_PUBLIC fo_lib)

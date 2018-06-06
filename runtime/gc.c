@@ -356,3 +356,8 @@ void run_gc() {
 }
 
 size_t num_gc_headers_in_use() { return num_gc_headers_in_use_; }
+
+void print_gc_mem_stats() {
+  printf("num_gc_headers_in_use: %lu, heap_usage: %lu (bytes)\n",
+         num_gc_headers_in_use(), heap_usage());
+}
