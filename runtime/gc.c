@@ -99,8 +99,8 @@ static gc_header_t* all_gc_headers;
 static size_t num_gc_headers_in_use_;
 
 static gc_header_t* gc_free;
-static gc_header_t* gc_trivial_roots;
-static gc_header_t* gc_nontrivial_roots;
+static gc_header_t* trivial_gc_roots;
+static gc_header_t* nontrivial_gc_roots;
 
 static void gc_add_to_list(gc_header_t** list, gc_header_t* g) {
   gc_header_t* head = *list;
@@ -162,7 +162,7 @@ gc_header_t* gc_alloc_trivial_ops(size_t size, const obj_operators_t* ops) {
   }
 
   g->meta_ref_count = 0;
-  gc_add_to_list(&gc_trivial_roots, g);
+  gc_add_to_list(&trivial_gc_roots, g);
   return g;
 }
 
@@ -172,7 +172,7 @@ gc_header_t* gc_alloc_nontrivial(size_t size, const obj_operators_t* ops) {
     return NULL;
   }
   g->meta_ref_count = NONTRIVIAL_ROOT_MASK;
-  gc_add_to_list(&gc_nontrivial_roots, g);
+  gc_add_to_list(&nontrivial_gc_roots, g);
   return g;
 }
 
@@ -213,9 +213,9 @@ void gc_unref(gc_header_t* g) {
 
   if (g->ref_count == 0) {
     if (is_nontrivial_gc(g)) {
-      gc_remove_from_list(&gc_nontrivial_roots, g);
+      gc_remove_from_list(&nontrivial_gc_roots, g);
     } else {
-      gc_remove_from_list(&gc_trivial_roots, g);
+      gc_remove_from_list(&trivial_gc_roots, g);
     }
     g->obj_ops->gc_visitor(g->obj, gc_unref);
     gc_dealloc(g);
@@ -241,8 +241,8 @@ void init_gc(size_t num_gc_headers) {
   gc_free = all_gc_headers;
   all_gc_headers[num_gc_headers_ - 1].next = NULL;
 
-  gc_trivial_roots = NULL;
-  gc_nontrivial_roots = NULL;
+  trivial_gc_roots = NULL;
+  nontrivial_gc_roots = NULL;
 
   num_gc_headers_in_use_ = 0;
 }
@@ -257,13 +257,11 @@ static void swap_heap_space() {
 }
 
 static void copy_refcount_to_shadow() {
-  gc_header_t* g = gc_nontrivial_roots;
+  gc_header_t* g = nontrivial_gc_roots;
   for (; g != NULL; g = g->next) {
     int32_t ref_count = g->ref_count;
     CHECK(ref_count < MAX_REF_COUNT);
     g->meta_ref_count = (NONTRIVIAL_ROOT_MASK | ref_count);
-    printf("copy_refcount_to_shadow, g=%p, nontrival: %d\n", g,
-           g->meta_ref_count);
   }
 }
 
@@ -272,14 +270,12 @@ static void visit_subtract_ref_count(gc_header_t* g) {
     int32_t shadow_ref_count = get_shadow_ref_count(g);
     CHECK(shadow_ref_count > 0);
     shadow_ref_count -= 1;
-    printf("visit_subtract_ref_count, g=%p, shadow_ref_count=%d\n", g,
-           shadow_ref_count);
     g->meta_ref_count = (NONTRIVIAL_ROOT_MASK | shadow_ref_count);
   }
 }
 
 static void subtract_shadow_ref_count() {
-  gc_header_t* g = gc_nontrivial_roots;
+  gc_header_t* g = nontrivial_gc_roots;
   for (; g != NULL; g = g->next) {
     g->obj_ops->gc_visitor(g->obj, visit_subtract_ref_count);
   }
@@ -294,18 +290,17 @@ static void visit_recover_ref_count(gc_header_t* g) {
 }
 
 static void find_unreachable() {
-  gc_header_t* g = gc_nontrivial_roots;
+  gc_header_t* g = nontrivial_gc_roots;
   for (; g != NULL; g = g->next) {
     if (get_shadow_ref_count(g) > 0) {
       g->obj_ops->gc_visitor(g->obj, visit_recover_ref_count);
     }
   }
 
-  g = gc_nontrivial_roots;
+  g = nontrivial_gc_roots;
   for (; g != NULL; g = g->next) {
     if (get_shadow_ref_count(g) == 0) {
       g->meta_ref_count = (NONTRIVIAL_ROOT_MASK | MARKED_AS_UNREACHABLE);
-      printf("g=%p, marked as unreachable\n", g);
     }
   }
 }
@@ -318,18 +313,18 @@ static void gc_unref_if_reachable(gc_header_t* g) {
 }
 
 static void dealloc_unreachable() {
-  gc_header_t* g = gc_nontrivial_roots;
+  gc_header_t* g = nontrivial_gc_roots;
   for (; g != NULL; g = g->next) {
     if (is_marked_unreachable(g)) {
       g->obj_ops->gc_visitor(g->obj, gc_unref_if_reachable);
     }
   }
 
-  g = gc_nontrivial_roots;
+  g = nontrivial_gc_roots;
   while (g != NULL) {
     gc_header_t* next = g->next;
     if (is_marked_unreachable(g)) {
-      gc_remove_from_list(&gc_nontrivial_roots, g);
+      gc_remove_from_list(&nontrivial_gc_roots, g);
       g->ref_count = 0;
       gc_dealloc(g);
     }
@@ -356,34 +351,8 @@ void run_gc() {
   dealloc_unreachable();
   // move to new space
   swap_heap_space();
-  copy_to_new_heap(gc_trivial_roots);
-  copy_to_new_heap(gc_nontrivial_roots);
+  copy_to_new_heap(trivial_gc_roots);
+  copy_to_new_heap(nontrivial_gc_roots);
 }
 
 size_t num_gc_headers_in_use() { return num_gc_headers_in_use_; }
-
-// static int32_t TENTAIVE_UNREACHABLE_MASK = (1 << 30);
-//
-// static inline bool is_gc_tentative_unreachable(const gc_header_t* g) {
-//   return ((g->ref_count.c[META_REF_COUNT] & TENTAIVE_UNREACHABLE_MASK) ==
-//           TENTAIVE_UNREACHABLE_MASK);
-// }
-//
-// static void move_unreachable() {
-//   gc_header_t* g = gc_nontrivial_roots;
-//   while (g != NULL) {
-//     gc_header_t* next;
-//     int32_t shadow_ref_count = get_shadow_ref_count(g);
-//     if (shadow_ref_count == 0) {
-//       next = g->next;
-//       gc_remove_from_list(&gc_nontrivial_roots, g);
-//       gc_add_to_list(&gc_unreachable, g);
-//       g->ref_count.c[META_REF_COUNT] =
-//           (NONTRIVIAL_ROOT_MASK | TENTAIVE_UNREACHABLE_MASK);
-//     } else {
-//       g->obj_ops->gc_visitor(g->obj, visit_recover_ref_count);
-//       next = g->next;
-//     }
-//     g = next;
-//   }
-// }

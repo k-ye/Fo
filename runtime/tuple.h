@@ -19,6 +19,5 @@ const obj_operators_t* get_tuple_operators();
 gc_header_t* alloc_tuple(size_t num);
 void set_tuple_at(gc_header_t* gt, int i, val_t val, bool needs_gc);
 val_t get_tuple_at(gc_header_t* gt, int i);
-// val_t* get_tuple_addr_at(tuple_t* t, int i);
 
 #endif  // RUNTIME_TUPLE_H_
